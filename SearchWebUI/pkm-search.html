@@ -528,17 +528,24 @@
     }
 
     // API Helpers
-    async function apiRequest(endpoint, options = {}) {
-      const res = await fetch(`${MEILI_URL}${endpoint}`, {
-        ...options,
-        headers: {
-          'Authorization': `Bearer ${MEILI_KEY}`,
-          'Content-Type': 'application/json',
-          ...(options.headers || {})
-        }
-      });
-      if (!res.ok) throw new Error(`API Error: ${res.status}`);
-      return res.json();
+    async function apiRequest(endpoint, options = {}, timeoutMs = 15000) {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), timeoutMs);
+      try {
+        const res = await fetch(`${MEILI_URL}${endpoint}`, {
+          ...options,
+          signal: controller.signal,
+          headers: {
+            'Authorization': `Bearer ${MEILI_KEY}`,
+            'Content-Type': 'application/json',
+            ...(options.headers || {})
+          }
+        });
+        if (!res.ok) throw new Error(`API Error: ${res.status}`);
+        return res.json();
+      } finally {
+        clearTimeout(timer);
+      }
     }
 
     // Load Index Stats
@@ -727,7 +734,7 @@
         const data = await apiRequest('/multi-search', {
           method: 'POST',
           body: JSON.stringify(payload)
-        });
+        }, 60000);
         
         let allHits = [];
         let totalEstimated = 0;
