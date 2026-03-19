@@ -632,7 +632,7 @@ body.dark .badge-xlsx  { background: #14281E; color: #86EFAC; }
    PREVIEW PANEL
 ═══════════════════════════════════════════════════════════════ */
 .preview-panel {
-  width: 500px;
+  width: 580px;
   flex-shrink: 0;
   border-left: 1px solid var(--border);
   background: var(--bg-preview);
@@ -915,23 +915,92 @@ body.dark .badge-xlsx  { background: #14281E; color: #86EFAC; }
 
 /* ── Resize handle between results and preview ── */
 .resize-handle {
-  width: 4px;
+  width: 8px;
   background: var(--border);
   cursor: col-resize;
   flex-shrink: 0;
   transition: background 0.15s;
   position: relative;
   z-index: 10;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
 /* wider invisible hit-area */
 .resize-handle::before {
   content: '';
   position: absolute;
-  inset: 0 -5px;
+  inset: 0 -6px;
+}
+/* grip dots */
+.resize-handle::after {
+  content: '⋮';
+  font-size: 14px;
+  color: var(--text-muted);
+  pointer-events: none;
+  line-height: 1;
+  letter-spacing: -2px;
+  opacity: 0.6;
 }
 .resize-handle:hover,
 .resize-handle.dragging { background: var(--accent); }
+.resize-handle:hover::after,
+.resize-handle.dragging::after { color: white; opacity: 1; }
+/* tooltip on hover */
+.resize-handle[title]:hover::before {
+  content: attr(title);
+  position: absolute;
+  bottom: 50%;
+  left: 14px;
+  transform: translateY(50%);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  font-size: 0.7rem;
+  white-space: nowrap;
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  pointer-events: none;
+  z-index: 100;
+  inset: unset;
+  width: auto;
+}
 @media (max-width: 1099px) { .resize-handle { display: none; } }
+
+/* ── Top-of-page loading bar (YouTube style) ── */
+#top-loading-bar {
+  position: fixed;
+  top: 0; left: 0;
+  height: 3px;
+  width: 0%;
+  background: linear-gradient(90deg, var(--scc-red), #ff6b6b, var(--scc-red));
+  background-size: 200% 100%;
+  z-index: 9999;
+  transition: width 0.3s ease, opacity 0.4s ease;
+  opacity: 0;
+  pointer-events: none;
+}
+#top-loading-bar.loading {
+  opacity: 1;
+  animation: topbar-grow 1.8s ease-out forwards, topbar-shimmer 1s linear infinite;
+}
+#top-loading-bar.done {
+  width: 100% !important;
+  opacity: 0;
+  transition: width 0.15s ease, opacity 0.5s ease 0.15s;
+}
+@keyframes topbar-grow {
+  0%   { width: 0%; }
+  40%  { width: 60%; }
+  70%  { width: 80%; }
+  90%  { width: 92%; }
+  100% { width: 96%; }
+}
+@keyframes topbar-shimmer {
+  0%   { background-position: 200% center; }
+  100% { background-position: -200% center; }
+}
 
 /* ═══════════════════════════════════════════════════════════════
    TOAST NOTIFICATION
@@ -981,6 +1050,7 @@ body.dark .badge-xlsx  { background: #14281E; color: #86EFAC; }
 </style>
 </head>
 <body>
+<div id="top-loading-bar"></div>
 
 <!-- ══════════════════════════════════════════════════════════
      HEADER
@@ -1132,7 +1202,7 @@ body.dark .badge-xlsx  { background: #14281E; color: #86EFAC; }
   </div>
 
   <!-- Drag-resize handle -->
-  <div class="resize-handle" id="resize-handle" title="Drag to resize"></div>
+  <div class="resize-handle" id="resize-handle" title="Drag to resize · Double-click to reset"></div>
 
   <!-- Preview Panel (desktop only) -->
   <div class="preview-panel empty" id="preview-panel">
@@ -1778,21 +1848,36 @@ function fmtSize(bytes) {
 }
 function hideWelcome()     { document.getElementById('state-welcome').style.display = 'none'; }
 function showSpinner(v) {
-  const el = document.getElementById('search-spinner');
+  const el  = document.getElementById('search-spinner');
+  const bar = document.getElementById('top-loading-bar');
   el.style.display = v ? 'flex' : 'none';
+
   if (v) {
+    /* ── top loading bar: start ── */
+    bar.classList.remove('done');
+    bar.style.width = '0%';
+    void bar.offsetWidth; // force reflow
+    bar.classList.add('loading');
+
     const src = state.source === 'emails' ? 'emails'
               : state.source === 'documents' ? 'documents'
-              : 'emails and documents';
+              : 'emails & documents';
     const hasAdv = state.advFrom || state.advTo || state.advSubject;
     const parts = [];
     if (state.advFrom)    parts.push(`From: "${state.advFrom}"`);
     if (state.advTo)      parts.push(`To: "${state.advTo}"`);
     if (state.advSubject) parts.push(`Subject: "${state.advSubject}"`);
-    document.getElementById('loading-title').textContent = `Searching ${src}…`;
-    document.getElementById('loading-sub').textContent   = hasAdv
-      ? `Applying filters — ${parts.join(' · ')} · this may take a moment`
-      : '';
+
+    const queryLabel = state.query ? `"${state.query}"` : '(all)';
+    document.getElementById('loading-title').textContent = `Searching ${src} for ${queryLabel}…`;
+    document.getElementById('loading-sub').textContent = hasAdv
+      ? `Filtering — ${parts.join(' · ')}`
+      : state.dateFrom || state.dateTo ? `Date range applied · matching across all fields` : '';
+  } else {
+    /* ── top loading bar: finish ── */
+    bar.classList.remove('loading');
+    bar.classList.add('done');
+    setTimeout(() => bar.classList.remove('done'), 700);
   }
 }
 function clearResults(append) {
@@ -1979,6 +2064,14 @@ function initResize() {
   // Restore user's last width
   const saved = parseInt(localStorage.getItem('pkm-preview-width'), 10);
   if (saved && saved >= 280 && saved <= 900) preview.style.width = saved + 'px';
+  else preview.style.width = '580px'; // default
+
+  // Double-click resets to default width
+  handle.addEventListener('dblclick', () => {
+    preview.style.width = '580px';
+    localStorage.setItem('pkm-preview-width', 580);
+    showToast('Preview width reset to default');
+  });
 
   handle.addEventListener('mousedown', e => {
     e.preventDefault();
